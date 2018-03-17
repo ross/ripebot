@@ -1,0 +1,27 @@
+#!/bin/sh
+set -e
+
+cd "$(dirname "$0")/.."
+
+if [ -z "$VENV_NAME" ]; then
+    VENV_NAME="env"
+fi
+
+ACTIVATE="$VENV_NAME/bin/activate"
+if [ ! -f "$ACTIVATE" ]; then
+    echo "$ACTIVATE does not exist, run ./script/bootstrap" >&2
+    exit 1
+fi
+. "$ACTIVATE"
+
+export AWS_ACCESS_KEY_ID=
+export AWS_SECRET_ACCESS_KEY=
+export DATADOG_API_KEY=
+export DATADOG_APP_KEY=
+export S3_BUCKET=
+export S3_PREFIX=
+export SLACK_AUTH_TOKENS=
+
+coverage run --branch --source ripe,ripebot `which nosetests` --with-xunit "$@"
+coverage html
+coverage xml

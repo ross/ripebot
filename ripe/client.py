@@ -58,7 +58,7 @@ class RipeClient(object):
         while ids:
             batch = ids[:self.PAGE_SIZE]
             ids = ids[self.PAGE_SIZE:]
-            params['id__in'] = ','.join(batch)
+            params['id__in'] = ','.join([str(id) for id in batch])
             data = self._get(url, params)
             for probe in data['results']:
                 yield probe
@@ -117,6 +117,12 @@ class RipeClient(object):
         resp = self._post(url, data)
 
         return resp['measurements'][0]
+
+    def measurement(self, measurement_id):
+        self.log.debug('measurement: measurement_id=%d', measurement_id)
+
+        url = '{}/measurements/{}/'.format(self.BASE_URL, measurement_id)
+        return self._get(url)
 
     def results(self, measurement_id, start=0, stop=9999999999):
         self.log.debug('results: measurement_id=%d', measurement_id)

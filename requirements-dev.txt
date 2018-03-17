@@ -1,0 +1,6 @@
+coverage
+mock
+nose
+pycodestyle
+pyflakes
+setuptools>=36.4.0
