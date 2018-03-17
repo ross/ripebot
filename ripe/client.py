@@ -11,7 +11,7 @@ class RipeClient(object):
     log = getLogger('RipeClient')
 
     BASE_URL = 'https://atlas.ripe.net/api/v2'
-    PAGE_SIZE = 10
+    PAGE_SIZE = 20
 
     def __init__(self, name, api_key):
         self.name = name
