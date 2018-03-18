@@ -78,6 +78,28 @@ class IpAddressAction(Action):
         setattr(namespace, self.dest, value)
 
 
+class RangeAction(Action):
+
+    def __init__(self, min, max, *args, **kwargs):
+        super(RangeAction, self).__init__(*args, **kwargs)
+        self.min = min
+        self.max = max
+
+    def __call__(self, parser, namespace, value, option_string=None):
+        try:
+            value = int(value)
+        except ValueError:
+            raise ArgumentError(self, 'invalid')
+        if value < self.min:
+            raise ArgumentError(self, 'invalid, less than min {}'
+                                .format(self.min))
+        if value > self.max:
+            raise ArgumentError(self, 'invalid, greater than max {}'
+                                .format(self.max))
+
+        setattr(namespace, self.dest, value)
+
+
 class RipeException(Exception):
     pass
 
@@ -97,6 +119,8 @@ class RipeHandler(BaseSlashHandler):
     else:
         city_lookup = MaxmindReader('./data/GeoLite2-City.mmdb')
     asn_lookup = MaxmindReader('./data/GeoLite2-ASN.mmdb')
+
+    strict_parser = True
 
     def initialize(self, ripe_client, time_fmt='%Y-%m-%dT%H:%M:%SZ', **kwargs):
         super(RipeHandler, self).initialize(**kwargs)
@@ -555,15 +579,14 @@ class RipeHandler(BaseSlashHandler):
                            default=True, help='Do dns resolution on the probe')
 
         group = parser.add_argument_group('Ping test options')
-        # TODO: restrict range 1-16
-        group.add_argument('--packets', type=int, default=4,
+        group.add_argument('--packets', action=RangeAction, default=4,
+                           min=1, max=16,
                            help='Number of packets to send when pinging')
-        # TODO: restrict range 2-300000
-        group.add_argument('--packet-interval', type=int, default=1000,
+        group.add_argument('--packet-interval', action=RangeAction,
+                           default=1000, min=2, max=300000,
                            help='Interval between packets when pinging')
-        # TODO: restrict range 1-2048
-        group.add_argument('--size', type=int, default=64,
-                           help='ICMP packet size to use')
+        group.add_argument('--size', action=RangeAction, default=64,
+                           min=1, max=2048, help='ICMP packet size to use')
 
         group = parser.add_argument_group('Misc options')
         group.add_argument('--min-wait', type=int, default=30,
@@ -573,5 +596,4 @@ class RipeHandler(BaseSlashHandler):
                            help='Maximum number of seconds to wait for '
                            'results')
 
-        # TODO: blow up for unknown args
         return parser
