@@ -1,0 +1,35 @@
+#!/bin/bash
+# Bootstrap the application's environment.
+set -e
+
+cd "$(dirname $0)"/..
+ROOT=$(pwd)
+
+out="./data/GeoLite2-ASN.mmdb"
+base=$(basename $out .mmdb)
+if [ ! -f $out ]; then
+    echo "Downloading $base"
+    curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz" | \
+        (cd data && tar xz && mv $base*/$base.mmdb ./)
+fi
+
+if [ -z $MAXMIND_LICENSE_KEY ]; then
+    out="./data/GeoLite2-City.mmdb"
+    base=$(basename $out .mmdb)
+    if [ ! -f $out ]; then
+        echo ""
+        echo "NOTICE: MAXMIND_LICENSE_KEY env variable not defined, downloading $base"
+        echo ""
+        echo "Downloading $base"
+        curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz" | \
+            (cd data && tar xz && mv $base*/$base.mmdb ./)
+    fi
+else
+    out="./data/GeoIP2-City.mmdb"
+    base=$(basename $out .mmdb)
+    if [ ! -f $out ]; then
+        echo "Downloading $base"
+        curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz&license_key=$MAXMIND_LICENSE_KEY" | \
+            (cd data && tar xz && mv $base*/$base.mmdb ./)
+    fi
+fi

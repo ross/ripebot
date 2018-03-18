@@ -27,6 +27,8 @@ if [ ! -L ".git/hooks/pre-commit" ]; then
     ln -s "$ROOT/.git_hooks_pre-commit" ".git/hooks/pre-commit"
 fi
 
+script/download-geoip
+
 echo ""
 echo "Run source env/bin/activate to get your shell in to the virtualenv"
 echo "See README.md for more information."

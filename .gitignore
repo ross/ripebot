@@ -3,6 +3,7 @@
 .env
 botie.egg-info/
 coverage.xml
+data/*
 dist/
 env/
 htmlcov/
