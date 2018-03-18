@@ -23,21 +23,20 @@ class RipeClient(object):
         })
         self._sess = sess
 
-    def _get(self, url, params={}, headers={}):
-        self.log.debug('_get: url=%s, params=%s', url, params)
-        resp = self._sess.get(url, params=params, headers=headers)
-        if resp.status_code != 200:
+    def _request(self, method, url, params, data=None, headers={}):
+        self.log.debug('_request: method=%s, url=%s, params=%s', method, url,
+                       params)
+        resp = self._sess.request(method, url, params=params, json=data, headers=headers)
+        if resp.status_code < 200 or resp.status_code > 299:
             self.log.error('_get: resp.content=%s', resp.content)
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, url, data):
-        self.log.debug('_post: url=%s, data=%s', url, data)
-        resp = self._sess.post(url, json=data)
-        if resp.status_code != 200:
-            self.log.error('_post: resp.content=%s', resp.content)
-        resp.raise_for_status()
-        return resp.json()
+    def _get(self, url, params={}, headers={}):
+        return self._request('GET', url, params, headers=headers)
+
+    def _post(self, url, params={}, data=None):
+        return self._request('POST', url, params, data=data)
 
     def _validate_probe_filters(self, filters):
         # TODO:
@@ -115,7 +114,7 @@ class RipeClient(object):
             }],
         }
         url = '{}/measurements/'.format(self.BASE_URL)
-        resp = self._post(url, data)
+        resp = self._post(url, data=data)
 
         return resp['measurements'][0]
 
