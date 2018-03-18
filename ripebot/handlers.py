@@ -357,7 +357,7 @@ class RipeHandler(BaseSlashHandler):
             table.append((
                 result['from'],
                 str(asns[result['prb_id']]),
-                result['dst_addr'],
+                result.get('dst_addr', ''),
                 ttr,
                 '{} of {} = {:0.2f}%'.format(rcvd, sent, percent),
                 _min,
@@ -467,7 +467,7 @@ class RipeHandler(BaseSlashHandler):
             table.append((
                 result['from'],
                 str(asns[result['prb_id']]),
-                result['dst_addr'],
+                result.get('dst_addr', ''),
                 '{}/{}'.format(result['method'], result['ver']),
                 cert_serial,
                 ttr,
