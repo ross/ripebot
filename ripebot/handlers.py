@@ -10,6 +10,7 @@ from geoip2.database import Reader as MaxmindReader
 from geoip2.errors import AddressNotFoundError
 from io import StringIO
 from logging import getLogger
+from os.path import isfile
 from time import sleep
 
 from botie.handlers.base import BaseSlashHandler
@@ -76,7 +77,10 @@ class RipeHandler(BaseSlashHandler):
     command = 'ripe'
 
     executor = ThreadPoolExecutor(max_workers=4)
-    city_lookup = MaxmindReader('./data/GeoIP2-City.mmdb')
+    if isfile('./data/GeoIP2-City.mmdb'):
+        city_lookup = MaxmindReader('./data/GeoIP2-City.mmdb')
+    else:
+        city_lookup = MaxmindReader('./data/GeoLite2-City.mmdb')
     asn_lookup = MaxmindReader('./data/GeoLite2-ASN.mmdb')
 
     def initialize(self, ripe_client, time_fmt='%Y-%m-%dT%H:%M:%SZ', **kwargs):
