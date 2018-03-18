@@ -2,6 +2,7 @@
 #
 #
 
+from OpenSSL import crypto
 from argparse import ArgumentError
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -57,6 +58,10 @@ class Table(list):
         buf.write('+')
         buf.write('-' * total)
         buf.write('+\n')
+
+
+def _parse_cert_time(tm):
+    return datetime.strptime(str(tm)[2:-1], '%Y%m%d%H%M%SZ')
 
 
 class RipeException(Exception):
@@ -190,20 +195,20 @@ class RipeHandler(BaseSlashHandler):
 
         buf = StringIO()
 
-        buf.write('Target: ')
+        buf.write('*Target*: ')
         buf.write(measurement['target'])
         buf.write('\n')
 
-        buf.write('Start: ')
+        buf.write('*Start*: ')
         start = datetime.utcfromtimestamp(measurement['start_time'])
         buf.write(start.strftime(self.time_fmt))
         buf.write('\n')
 
-        buf.write('Status: ')
+        buf.write('*Status*: ')
         buf.write(measurement['status']['name'])
         buf.write('\n')
 
-        buf.write('Probes: ')
+        buf.write('*Probes*: ')
         buf.write(str(measurement['probes_requested']))
         buf.write(' requested, ')
         buf.write(str(measurement['probes_scheduled']))
@@ -211,7 +216,7 @@ class RipeHandler(BaseSlashHandler):
         buf.write(str(measurement['participant_count']))
         buf.write(' participating\n')
 
-        buf.write('Details: https://atlas.ripe.net/measurements/')
+        buf.write('*Details*: https://atlas.ripe.net/measurements/')
         buf.write(str(measurement_id))
         buf.write('/\n')
 
@@ -227,11 +232,18 @@ class RipeHandler(BaseSlashHandler):
             'Source AS',
             'Dest IP',
             'Version',
+            'Serial',
             'Tt Resolve',
             'Tt Connect',
             'Tt Response',
         ))
+        certs = {}
         for result in results:
+
+            cert = crypto.load_certificate(crypto.FILETYPE_PEM,
+                                           result['cert'][0])
+            cert_serial = hex(cert.get_serial_number())[2:10]
+            certs[cert_serial] = cert
 
             try:
                 ttr = '{:0.2f}'.format(result['ttr'])
@@ -253,6 +265,7 @@ class RipeHandler(BaseSlashHandler):
                 str(asns[result['prb_id']]),
                 result['dst_addr'],
                 '{}/{}'.format(result['method'], result['ver']),
+                cert_serial,
                 ttr,
                 ttc,
                 rt
@@ -273,6 +286,36 @@ class RipeHandler(BaseSlashHandler):
         table.write(buf)
         buf.write(self.backend.pre_end)
         buf.write('\n')
+
+        # https://pyopenssl.readthedocs.io/en/latest/api/crypto.html
+        for serial, cert in certs.items():
+            buf.write('*----------------------------------------*\n')
+
+            buf.write('*Serial*: ')
+            buf.write(serial)
+            buf.write('\n')
+
+            # TODO: SAN list would be nice here
+
+            subject = cert.get_subject()
+            buf.write('*Issused to*: ')
+            buf.write(subject.CN)
+            buf.write('\n')
+
+            issuer = cert.get_issuer()
+            buf.write('*Issuer*: ')
+            buf.write(issuer.CN)
+            buf.write('\n')
+
+            buf.write('*Time period*: ')
+            not_before = _parse_cert_time(cert.get_notBefore())
+            buf.write(not_before.strftime(self.time_fmt))
+            buf.write(' - ')
+            not_after = _parse_cert_time(cert.get_notAfter())
+            buf.write(not_after.strftime(self.time_fmt))
+            buf.write('\n')
+
+        buf.write('*----------------------------------------*\n')
 
         buf.write('/cc {}'.format(self.backend.user_mention(self)))
 
