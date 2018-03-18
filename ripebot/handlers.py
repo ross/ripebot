@@ -7,6 +7,7 @@ from argparse import ArgumentError
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from geoip2.database import Reader as MaxmindReader
+from geoip2.errors import AddressNotFoundError
 from io import StringIO
 from logging import getLogger
 from time import sleep
@@ -75,7 +76,8 @@ class RipeHandler(BaseSlashHandler):
     command = 'ripe'
 
     executor = ThreadPoolExecutor(max_workers=4)
-    lookup = MaxmindReader('./data/GeoIP2-City.mmdb')
+    city_lookup = MaxmindReader('./data/GeoIP2-City.mmdb')
+    asn_lookup = MaxmindReader('./data/GeoLite2-ASN.mmdb')
 
     def initialize(self, ripe_client, time_fmt='%Y-%m-%dT%H:%M:%SZ', **kwargs):
         super(RipeHandler, self).initialize(**kwargs)
@@ -131,12 +133,25 @@ class RipeHandler(BaseSlashHandler):
         self.log.debug('_select_probes_ip_address: options=%s, kwargs=%s',
                        options, kwargs)
 
-        geo = self.lookup.city(options.ip_address)
+        ip_address = options.ip_address
+        try:
+            geo = self.city_lookup.city(ip_address)
+        except AddressNotFoundError:
+            raise RipeException('Unable to locate {}'.format(ip_address))
 
         lat = geo.location.latitude
         lon = geo.location.longitude
 
-        # TODO: same asn support
+        if options.same_asn:
+            try:
+                asn = self.asn_lookup.asn(ip_address).autonomous_system_number
+            except AddressNotFoundError:
+                raise RipeException('Unable to find ASN for {}'
+                                    .format(ip_address))
+            if '.' in ip_address:
+                kwargs['asn_v4'] = asn
+            else:
+                kwargs['asn_v6'] = asn
 
         return self._select_probes_lat_lon(options, kwargs, lat, lon)
 
