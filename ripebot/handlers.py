@@ -3,12 +3,13 @@
 #
 
 from asn1crypto import pem, x509
-from argparse import ArgumentError
+from argparse import Action, ArgumentError
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from geoip2.database import Reader as MaxmindReader
 from geoip2.errors import AddressNotFoundError
 from io import StringIO
+from ipaddress import AddressValueError, IPv4Address, IPv6Address
 from logging import getLogger
 from os.path import isfile
 from time import sleep
@@ -61,6 +62,20 @@ class Table(list):
         buf.write('+')
         buf.write('-' * total)
         buf.write('+\n')
+
+
+class IpAddressAction(Action):
+
+    def __call__(self, parser, namespace, value, option_string=None):
+        try:
+            IPv4Address(value)
+        except AddressValueError:
+            try:
+                IPv6Address(value)
+            except AddressValueError:
+                raise ArgumentError(self, 'invalid IP address')
+
+        setattr(namespace, self.dest, value)
 
 
 class RipeException(Exception):
@@ -508,8 +523,8 @@ class RipeHandler(BaseSlashHandler):
                            help='Maximum number of probes to use')
 
         group = parser.add_argument_group('IP based probe selection')
-        # TODO: validate ip address
         group.add_argument('--ip-address', default=None,
+                           action=IpAddressAction,
                            help='The IP address to use when selecting probes')
         group.add_argument('--same-asn', action='store_true', default=False,
                            help='Look for probes with the same ASN as '
