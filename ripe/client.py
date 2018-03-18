@@ -94,6 +94,34 @@ class RipeClient(object):
     def _description(self, _type):
         return '{} - {} - {}'.format(self.name, _type, uuid4().hex)
 
+    def ping(self, target, probe_ids, packets=4, packet_interval=100,
+             address_family=4, resolve_on_probe=True):
+        self.log.debug('sslcert: target=%s, probe_ids=%s, address_family=%d, '
+                       'resolve_on_probe=%s', target, probe_ids,
+                       address_family, resolve_on_probe)
+
+        data = {
+            'definitions': [{
+                'af': address_family,
+                'description': self._description('ping'),
+                'is_oneoff': True,
+                'packets': packets,
+                'packet_interval': packet_interval,
+                'resolve_on_probe': resolve_on_probe,
+                'target': target,
+                'type': 'ping',
+            }],
+            'probes': [{
+                'requested': len(probe_ids),
+                'type': 'probes',
+                'value': ','.join([str(id) for id in probe_ids]),
+            }],
+        }
+        url = '{}/measurements/'.format(self.BASE_URL)
+        resp = self._post(url, data=data)
+
+        return resp['measurements'][0]
+
     def sslcert(self, target, probe_ids, address_family=4,
                 resolve_on_probe=True):
         self.log.debug('sslcert: target=%s, probe_ids=%s, address_family=%d, '

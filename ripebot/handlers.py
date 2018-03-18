@@ -85,6 +85,7 @@ class RipeHandler(BaseSlashHandler):
         self.log.debug('handle: options=%s', options)
 
         func = {
+            'ping': self._ping,
             'sslcert': self._sslcert,
         }[options.command]
         self._run_in_background(func, options)
@@ -159,6 +160,175 @@ class RipeHandler(BaseSlashHandler):
 
         response_func(measurement_id, results)
 
+    def _measurement_summary(self, measurement, buf):
+        buf.write('*Target*: ')
+        buf.write(measurement['target'])
+        buf.write('\n')
+
+        buf.write('*Start*: ')
+        start = datetime.utcfromtimestamp(measurement['start_time'])
+        buf.write(start.strftime(self.time_fmt))
+        buf.write('\n')
+
+        buf.write('*Status*: ')
+        buf.write(measurement['status']['name'])
+        buf.write('\n')
+
+        buf.write('*Probes*: ')
+        buf.write(str(measurement['probes_requested']))
+        buf.write(' requested, ')
+        buf.write(str(measurement['probes_scheduled']))
+        buf.write(' scheduled, ')
+        buf.write(str(measurement['participant_count']))
+        buf.write(' participating\n')
+
+        buf.write('*Details*: https://atlas.ripe.net/measurements/')
+        buf.write(str(measurement['id']))
+        buf.write('/\n')
+
+    def _ping(self, options):
+        self.log.debug('_ping: options=%s', options)
+
+        if options.measurement_id is not None:
+            self._send_ping_response(options.measurement_id)
+            return
+
+        probe_ids = self._select_probes(options)
+
+        measurement_id = self.ripe_client.ping(options.target, probe_ids,
+                                               options.packets,
+                                               options.packet_interval,
+                                               options.address_family,
+                                               options.resolve_on_probe)
+
+        self.send_simple_response('Measurement started '
+                                  'https://atlas.ripe.net/measurements/{}/, '
+                                  'waiting up to {}s for it to complete'
+                                  .format(measurement_id, options.max_wait))
+
+        self._await_results(options, measurement_id,
+                            self._send_ping_response)
+
+    def _send_ping_response(self, measurement_id, results=None):
+        self.log.debug('_send_ping_response: measurement_id=%d, results=*',
+                       measurement_id)
+
+        if results is None:
+            results = list(self.ripe_client.results(measurement_id))
+
+        from pprint import pprint
+        pprint(results)
+
+#         {'af': 4,
+#          'avg': 64.12897325,
+#          'dst_addr': '192.30.255.113',
+#          'dst_name': 'github.com',
+#          'dup': 0,
+#          'from': '75.101.48.145',
+#          'fw': 4790,
+#          'group_id': 11713625,
+#          'lts': 54,
+#          'max': 66.120206,
+#          'min': 61.337101,
+#          'msm_id': 11713625,
+#          'msm_name': 'Ping',
+#          'prb_id': 3651,
+#          'proto': 'ICMP',
+#          'rcvd': 4,
+#          'result': [{'rtt': 63.043596},
+#                     {'rtt': 61.337101},
+#                     {'rtt': 66.120206},
+#                     {'rtt': 66.01499}],
+#          'sent': 4,
+#          'size': 64,
+#          'src_addr': '172.16.125.32',
+#          'step': 240,
+#          'stored_timestamp': 1521386768,
+#          'timestamp': 1521386749,
+#          'ttl': 52,
+#          'type': 'ping'}
+
+        # Refresh the measurement info in case anything has changed since we
+        # looked
+        measurement = self.ripe_client.measurement(measurement_id)
+
+        buf = StringIO()
+
+        self._measurement_summary(measurement, buf)
+
+        asn_key = 'asn_v{}'.format(measurement['af'])
+        probe_ids = [r['prb_id'] for r in results]
+        asns = {
+            p['id']: p[asn_key]
+            for p in self.ripe_client.probes_by_id(probe_ids)
+        }
+
+        table = Table((
+            'Source IP',
+            'Source AS',
+            'Dest IP',
+            'Tt Resolve',
+            'Packets',
+            'Min',
+            'Max',
+            'Avg',
+        ))
+        for result in results:
+
+            try:
+                ttr = '{:0.2f}'.format(result['ttr'])
+            except KeyError:
+                ttr = ''
+
+            try:
+                _min = '{:0.2f}'.format(result['min'])
+            except KeyError:
+                _min = ''
+
+            try:
+                _max = '{:0.2f}'.format(result['max'])
+            except KeyError:
+                _max = ''
+
+            try:
+                avg = '{:0.2f}'.format(result['avg'])
+            except KeyError:
+                avg = ''
+
+            sent = result['sent']
+            rcvd = result['rcvd']
+
+            table.append((
+                result['from'],
+                str(asns[result['prb_id']]),
+                result['dst_addr'],
+                ttr,
+                '{} of {} = {:0.2f}%'.format(rcvd, sent, 100 * rcvd / sent),
+                _min,
+                _max,
+                avg,
+            ))
+
+        def keyer(row):
+            try:
+                # sort rt ascending
+                return float(row[-1])
+            except ValueError:
+                # fallback to a huge value
+                return 999999
+
+        table.sort(key=keyer)
+
+        buf.write('\n')
+        buf.write(self.backend.pre_start)
+        table.write(buf)
+        buf.write(self.backend.pre_end)
+        buf.write('\n')
+
+        buf.write('/cc {}'.format(self.backend.user_mention(self)))
+
+        self.send_simple_response(buf.getvalue())
+
     def _sslcert(self, options):
         self.log.debug('_sslcert: options=%s', options)
 
@@ -193,30 +363,7 @@ class RipeHandler(BaseSlashHandler):
 
         buf = StringIO()
 
-        buf.write('*Target*: ')
-        buf.write(measurement['target'])
-        buf.write('\n')
-
-        buf.write('*Start*: ')
-        start = datetime.utcfromtimestamp(measurement['start_time'])
-        buf.write(start.strftime(self.time_fmt))
-        buf.write('\n')
-
-        buf.write('*Status*: ')
-        buf.write(measurement['status']['name'])
-        buf.write('\n')
-
-        buf.write('*Probes*: ')
-        buf.write(str(measurement['probes_requested']))
-        buf.write(' requested, ')
-        buf.write(str(measurement['probes_scheduled']))
-        buf.write(' scheduled, ')
-        buf.write(str(measurement['participant_count']))
-        buf.write(' participating\n')
-
-        buf.write('*Details*: https://atlas.ripe.net/measurements/')
-        buf.write(str(measurement_id))
-        buf.write('/\n')
+        self._measurement_summary(measurement, buf)
 
         asn_key = 'asn_v{}'.format(measurement['af'])
         probe_ids = [r['prb_id'] for r in results]
@@ -328,7 +475,7 @@ class RipeHandler(BaseSlashHandler):
     def get_parser(self):
         parser = super(RipeHandler, self).get_parser()
 
-        parser.add_argument('command', choices=('sslcert',),
+        parser.add_argument('command', choices=('ping', 'sslcert'),
                             help='The measurement type to run')
 
         parser.add_argument('--measurement-id', type=int, default=None,
@@ -357,7 +504,17 @@ class RipeHandler(BaseSlashHandler):
         parser.add_argument('--max-wait', type=int, default=120,
                             help='Maximum number of seconds to wait for '
                             'results')
-        parser.add_argument('--resolve-on-probe', type=bool, default=False,
+        parser.add_argument('--resolve-on-probe', type=bool, default=True,
                             help='Do dns resolution on the probe')
+
+        # TODO: restrict range 1-16
+        parser.add_argument('--packets', type=int, default=4,
+                            help='Number of packets to send when pinging')
+        # TODO: restrict range 2-300000
+        parser.add_argument('--packet-interval', type=int, default=1000,
+                            help='Interval between packets when pinging')
+        # TODO: restrict range 1-2048
+        parser.add_argument('--size', type=int, default=64,
+                            help='ICMP packet size to use')
 
         return parser
