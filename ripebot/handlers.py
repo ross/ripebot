@@ -6,6 +6,7 @@ from asn1crypto import pem, x509
 from argparse import ArgumentError
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from geoip2.database import Reader as MaxmindReader
 from io import StringIO
 from logging import getLogger
 from time import sleep
@@ -74,6 +75,7 @@ class RipeHandler(BaseSlashHandler):
     command = 'ripe'
 
     executor = ThreadPoolExecutor(max_workers=4)
+    lookup = MaxmindReader('./data/GeoIP2-City.mmdb')
 
     def initialize(self, ripe_client, time_fmt='%Y-%m-%dT%H:%M:%SZ', **kwargs):
         super(RipeHandler, self).initialize(**kwargs)
@@ -106,12 +108,11 @@ class RipeHandler(BaseSlashHandler):
         self.executor.submit(caller)
 
     def _select_probes(self, options):
-        self.log.debug('_select_probes: options=%s', options)
-
-        radius = options.radius_miles * 1.60934 \
-            if options.radius_miles is not None else options.radius
 
         kwargs = {}
+
+        kwargs['radius'] = options.radius_miles * 1.60934 \
+            if options.radius_miles is not None else options.radius
 
         # ASN
         if options.asn_v4 is not None:
@@ -119,9 +120,37 @@ class RipeHandler(BaseSlashHandler):
         elif options.asn_v6 is not None:
             kwargs['asn_v6'] = options.asn_v6
 
+        if options.ip_address is not None:
+            return self._select_probes_ip_address(options, kwargs)
+        elif not (options.lat is None and options.lon is None):
+            return self._select_probes_lat_lon(options, kwargs)
+
+        raise ArgumentError(None, 'Missing probe selection parameters')
+
+    def _select_probes_ip_address(self, options, kwargs):
+        self.log.debug('_select_probes_ip_address: options=%s, kwargs=%s',
+                       options, kwargs)
+
+        geo = self.lookup.city(options.ip_address)
+
+        lat = geo.location.latitude
+        lon = geo.location.longitude
+
+        # TODO: same asn support
+
+        return self._select_probes_lat_lon(options, kwargs, lat, lon)
+
+    def _select_probes_lat_lon(self, options, kwargs, lat=None, lon=None):
+        self.log.debug('_select_probes_lat_lon: options=%s, kwargs=%s, '
+                       'lat=%s, lon=%s', options, kwargs, lat, lon)
+
+        if lat is None:
+            lat = options.lat
+        if lon is None:
+            lon = options.lon
+
         probe_ids = []
-        for probe in self.ripe_client.probes_by_geo(options.lat, options.lon,
-                                                    radius, **kwargs):
+        for probe in self.ripe_client.probes_by_geo(lat, lon, **kwargs):
             if probe['status']['id'] == 1:
                 probe_ids.append(probe['id'])
             if len(probe_ids) >= options.num_probes:
@@ -216,38 +245,6 @@ class RipeHandler(BaseSlashHandler):
         if results is None:
             results = list(self.ripe_client.results(measurement_id))
 
-        from pprint import pprint
-        pprint(results)
-
-#         {'af': 4,
-#          'avg': 64.12897325,
-#          'dst_addr': '192.30.255.113',
-#          'dst_name': 'github.com',
-#          'dup': 0,
-#          'from': '75.101.48.145',
-#          'fw': 4790,
-#          'group_id': 11713625,
-#          'lts': 54,
-#          'max': 66.120206,
-#          'min': 61.337101,
-#          'msm_id': 11713625,
-#          'msm_name': 'Ping',
-#          'prb_id': 3651,
-#          'proto': 'ICMP',
-#          'rcvd': 4,
-#          'result': [{'rtt': 63.043596},
-#                     {'rtt': 61.337101},
-#                     {'rtt': 66.120206},
-#                     {'rtt': 66.01499}],
-#          'sent': 4,
-#          'size': 64,
-#          'src_addr': '172.16.125.32',
-#          'step': 240,
-#          'stored_timestamp': 1521386768,
-#          'timestamp': 1521386749,
-#          'ttl': 52,
-#          'type': 'ping'}
-
         # Refresh the measurement info in case anything has changed since we
         # looked
         measurement = self.ripe_client.measurement(measurement_id)
@@ -298,12 +295,13 @@ class RipeHandler(BaseSlashHandler):
             sent = result['sent']
             rcvd = result['rcvd']
 
+            percent = 100 * rcvd / sent if sent > 0 else 0
             table.append((
                 result['from'],
                 str(asns[result['prb_id']]),
                 result['dst_addr'],
                 ttr,
-                '{} of {} = {:0.2f}%'.format(rcvd, sent, 100 * rcvd / sent),
+                '{} of {} = {:0.2f}%'.format(rcvd, sent, percent),
                 _min,
                 _max,
                 avg,
@@ -478,43 +476,68 @@ class RipeHandler(BaseSlashHandler):
         parser.add_argument('command', choices=('ping', 'sslcert'),
                             help='The measurement type to run')
 
-        parser.add_argument('--measurement-id', type=int, default=None,
-                            help='Display results from a measurement')
+        group = parser.add_argument_group('Existing measurements')
+        group.add_argument('--measurement-id', type=int, default=None,
+                           help='Display results from an existing '
+                           'measurement')
 
-        parser.add_argument('--target', help='The target of the measurement')
-        parser.add_argument('--lat', type=float,
-                            help='Probe selection latitude')
-        parser.add_argument('--lon', type=float,
-                            help='Probe selection longitude')
-        parser.add_argument('--radius', type=float, default=40.0,
-                            help='Probe selection radius')
-        parser.add_argument('--radius-miles', type=float, default=None,
-                            help='Probe selection radius in miles')
-        parser.add_argument('--address-family', type=int, choices=(4, 6),
-                            default='4')
-        parser.add_argument('--asn-v4', type=int, default=None,
-                            help='Probe selection v4 ASN')
-        parser.add_argument('--asn-v6', type=int, default=None,
-                            help='Probe selection v6 ASN')
-        parser.add_argument('--num-probes', type=int, default=20,
-                            help='Maximum number of probes to use')
-        parser.add_argument('--min-wait', type=int, default=30,
-                            help='Minimum number of seconds to wait before '
-                            'checking for results')
-        parser.add_argument('--max-wait', type=int, default=120,
-                            help='Maximum number of seconds to wait for '
-                            'results')
-        parser.add_argument('--resolve-on-probe', type=bool, default=True,
-                            help='Do dns resolution on the probe')
+        group = parser.add_argument_group('Targeting')
+        group.add_argument('--target', help='The target of the measurement')
 
+        group = parser.add_argument_group('Probe count')
+        group.add_argument('--num-probes', type=int, default=20,
+                           help='Maximum number of probes to use')
+
+        group = parser.add_argument_group('IP based probe selection')
+        # TODO: validate ip address
+        group.add_argument('--ip-address', default=None,
+                           help='The IP address to use when selecting probes')
+        group.add_argument('--same-asn', action='store_true', default=False,
+                           help='Look for probes with the same ASN as '
+                           '--ip-address')
+
+        group = parser.add_argument_group('Lat/Lon probe selection')
+        group.add_argument('--lat', type=float, default=None,
+                           help='Look for probes centering on latitude')
+        group.add_argument('--lon', type=float, default=None,
+                           help='Look for probes centering on longitude')
+
+        group = parser.add_argument_group('Filter probes by ASN')
+        group.add_argument('--asn-v4', type=int, default=None,
+                           help='Probe selection v4 ASN')
+        group.add_argument('--asn-v6', type=int, default=None,
+                           help='Probe selection v6 ASN')
+
+        group = parser.add_argument_group('Probe selection radius ')
+        group.add_argument('--radius', type=float, default=40.0,
+                           help='Probe selection radius')
+        group.add_argument('--radius-miles', type=float, default=None,
+                           help='Probe selection radius in miles')
+
+        group = parser.add_argument_group('General test options')
+        group.add_argument('--address-family', type=int, choices=(4, 6),
+                           default='4')
+        group.add_argument('--resolve-on-probe', action='store_true',
+                           default=True, help='Do dns resolution on the probe')
+
+        group = parser.add_argument_group('Ping test options')
         # TODO: restrict range 1-16
-        parser.add_argument('--packets', type=int, default=4,
-                            help='Number of packets to send when pinging')
+        group.add_argument('--packets', type=int, default=4,
+                           help='Number of packets to send when pinging')
         # TODO: restrict range 2-300000
-        parser.add_argument('--packet-interval', type=int, default=1000,
-                            help='Interval between packets when pinging')
+        group.add_argument('--packet-interval', type=int, default=1000,
+                           help='Interval between packets when pinging')
         # TODO: restrict range 1-2048
-        parser.add_argument('--size', type=int, default=64,
-                            help='ICMP packet size to use')
+        group.add_argument('--size', type=int, default=64,
+                           help='ICMP packet size to use')
 
+        group = parser.add_argument_group('Misc options')
+        group.add_argument('--min-wait', type=int, default=30,
+                           help='Minimum number of seconds to wait before '
+                           'checking for results')
+        group.add_argument('--max-wait', type=int, default=120,
+                           help='Maximum number of seconds to wait for '
+                           'results')
+
+        # TODO: blow up for unknown args
         return parser
