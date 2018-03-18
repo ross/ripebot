@@ -13,8 +13,9 @@ class RipeClient(object):
     BASE_URL = 'https://atlas.ripe.net/api/v2'
     PAGE_SIZE = 40
 
-    def __init__(self, name, api_key):
+    def __init__(self, name, api_key, timeout=10):
         self.name = name
+        self.timeout = timeout
 
         sess = Session()
         sess.headers.update({
@@ -26,7 +27,8 @@ class RipeClient(object):
     def _request(self, method, url, params, data=None, headers={}):
         self.log.debug('_request: method=%s, url=%s, params=%s', method, url,
                        params)
-        resp = self._sess.request(method, url, params=params, json=data, headers=headers)
+        resp = self._sess.request(method, url, params=params, json=data,
+                                  headers=headers, timeout=self.timeout)
         if resp.status_code < 200 or resp.status_code > 299:
             self.log.error('_get: resp.content=%s', resp.content)
         resp.raise_for_status()
