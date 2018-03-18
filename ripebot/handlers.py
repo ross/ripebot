@@ -172,7 +172,9 @@ class RipeHandler(BaseSlashHandler):
 
         probe_ids = self._select_probes(options)
 
-        measurement_id = self.ripe_client.sslcert(options.target, probe_ids)
+        measurement_id = self.ripe_client.sslcert(options.target, probe_ids,
+                                                  options.address_family,
+                                                  options.resolve_on_probe)
 
         self.send_simple_response('Measurement started '
                                   'https://atlas.ripe.net/measurements/{}/, '
@@ -353,5 +355,7 @@ class RipeHandler(BaseSlashHandler):
         parser.add_argument('--max-wait', type=int, default=120,
                             help='Maximum number of seconds to wait for '
                             'results')
+        parser.add_argument('--resolve-on-probe', type=bool, default=False,
+                            help='Do dns resolution on the probe')
 
         return parser
