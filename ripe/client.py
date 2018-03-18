@@ -11,7 +11,7 @@ class RipeClient(object):
     log = getLogger('RipeClient')
 
     BASE_URL = 'https://atlas.ripe.net/api/v2'
-    PAGE_SIZE = 20
+    PAGE_SIZE = 40
 
     def __init__(self, name, api_key):
         self.name = name
@@ -80,6 +80,7 @@ class RipeClient(object):
         }
         params.update(filters)
 
+        # TODO: LRU cache probes for use in responses? Maybe in client...
         while True:
             data = self._get(url, params)
             results = data['results']

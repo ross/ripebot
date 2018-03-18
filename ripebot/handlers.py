@@ -6,7 +6,6 @@ from argparse import ArgumentError
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import StringIO
-from itertools import islice
 from logging import getLogger
 from time import sleep
 
@@ -33,8 +32,6 @@ class Table(list):
             for i, c in enumerate(row):
                 widths[i] = max(widths[i], len(c))
 
-        buf.write('```')
-
         total = sum(widths) + (3 * n) - 1
         buf.write('+')
         buf.write('-' * total)
@@ -60,8 +57,6 @@ class Table(list):
         buf.write('+')
         buf.write('-' * total)
         buf.write('+\n')
-
-        buf.write('```')
 
 
 class RipeException(Exception):
@@ -122,47 +117,34 @@ class RipeHandler(BaseSlashHandler):
         elif options.asn_v6 is not None:
             kwargs['asn_v6'] = options.asn_v6
 
-        # TODO: filter out bad probes
-        probes = self.ripe_client.probes_by_geo(options.lat, options.lon,
-                                                radius, **kwargs)
-        probe_ids = [p['id'] for p in islice(probes, options.num_probes)]
+        probe_ids = []
+        for probe in self.ripe_client.probes_by_geo(options.lat, options.lon,
+                                                    radius, **kwargs):
+            if probe['status']['id'] == 1:
+                probe_ids.append(probe['id'])
+            if len(probe_ids) >= options.num_probes:
+                break
+
         self.log.debug('_select_probes: n=%d, probe_ids=%s', len(probe_ids),
                        probe_ids)
 
         if len(probe_ids) == 0:
-            raise NoProbes('Failed to find probes in the requested area')
+            raise NoProbes('Failed to find any probes in the requested area')
 
         return probe_ids
 
-    def _sslcert(self, options):
-        self.log.debug('_sslcert: options=%s', options)
-
-        probe_ids = self._select_probes(options)
-
-        measurement_id = self.ripe_client.sslcert(options.target, probe_ids)
-
-        self.send_simple_response('Measurement started '
-                                  'https://atlas.ripe.net/measurements/{}/'
-                                  .format(measurement_id))
-
-        self.log.debug('_sslcert: waiting %ds before proceeding',
+    def _await_results(self, options, measurement_id, response_func):
+        self.log.debug('_await_results: waiting %ds before proceeding',
                        options.min_wait)
         sleep(options.min_wait)
-
-        self._send_sslcert_response(options.min_wait, options.max_wait,
-                                    measurement_id)
-
-    def _send_sslcert_response(self, min_wait, max_wait, measurement_id):
-        self.log.debug('_send_sslcert_response: min_wait=%d, max_wait=%d, '
-                       'measurement_id=%d', measurement_id)
 
         measurement = self.ripe_client.measurement(measurement_id)
         probes_scheduled = measurement['probes_scheduled']
 
-        time_remaining = max_wait - min_wait
+        time_remaining = options.max_wait - options.min_wait
         results = list(self.ripe_client.results(measurement_id))
         while time_remaining > 0:
-            self.log.debug('_send_sslcert_response: %d >= %d, '
+            self.log.debug('_await_results: %d >= %d, '
                            'time_remaining=%d', len(results), probes_scheduled,
                            time_remaining)
             if len(results) >= probes_scheduled:
@@ -172,6 +154,34 @@ class RipeHandler(BaseSlashHandler):
             time_remaining -= 30
             sleep(min(time_remaining, 30))
 
+            results = list(self.ripe_client.results(measurement_id))
+
+        response_func(measurement_id, results)
+
+    def _sslcert(self, options):
+        self.log.debug('_sslcert: options=%s', options)
+
+        if options.measurement_id is not None:
+            self._send_sslcert_response(options.measurement_id)
+            return
+
+        probe_ids = self._select_probes(options)
+
+        measurement_id = self.ripe_client.sslcert(options.target, probe_ids)
+
+        self.send_simple_response('Measurement started '
+                                  'https://atlas.ripe.net/measurements/{}/, '
+                                  'waiting up to {}s for it to complete'
+                                  .format(measurement_id, options.max_wait))
+
+        self._await_results(options, measurement_id,
+                            self._send_sslcert_response)
+
+    def _send_sslcert_response(self, measurement_id, results=None):
+        self.log.debug('_send_sslcert_response: measurement_id=%d, results=*',
+                       measurement_id)
+
+        if results is None:
             results = list(self.ripe_client.results(measurement_id))
 
         # Refresh the measurement info in case anything has changed since we
@@ -204,7 +214,6 @@ class RipeHandler(BaseSlashHandler):
         buf.write('Details: https://atlas.ripe.net/measurements/')
         buf.write(str(measurement_id))
         buf.write('/\n')
-
 
         asn_key = 'asn_v{}'.format(measurement['af'])
         probe_ids = [r['prb_id'] for r in results]
@@ -249,7 +258,6 @@ class RipeHandler(BaseSlashHandler):
                 rt
             ))
 
-
         def keyer(row):
             try:
                 # sort rt ascending
@@ -260,7 +268,13 @@ class RipeHandler(BaseSlashHandler):
 
         table.sort(key=keyer)
 
+        buf.write('\n')
+        buf.write(self.backend.pre_start)
         table.write(buf)
+        buf.write(self.backend.pre_end)
+        buf.write('\n')
+
+        buf.write('/cc {}'.format(self.backend.user_mention(self)))
 
         self.send_simple_response(buf.getvalue())
 
@@ -269,6 +283,10 @@ class RipeHandler(BaseSlashHandler):
 
         parser.add_argument('command', choices=('sslcert',),
                             help='The measurement type to run')
+
+        parser.add_argument('--measurement-id', type=int, default=None,
+                            help='Display results from a measurement')
+
         parser.add_argument('--target', help='The target of the measurement')
         parser.add_argument('--lat', type=float,
                             help='Probe selection latitude')
@@ -278,7 +296,7 @@ class RipeHandler(BaseSlashHandler):
                             help='Probe selection radius')
         parser.add_argument('--radius-miles', type=float, default=None,
                             help='Probe selection radius in miles')
-        parser.add_argument('--address-family', type=int, choices=(4,6),
+        parser.add_argument('--address-family', type=int, choices=(4, 6),
                             default='4')
         parser.add_argument('--asn-v4', type=int, default=None,
                             help='Probe selection v4 ASN')
@@ -289,7 +307,7 @@ class RipeHandler(BaseSlashHandler):
         parser.add_argument('--min-wait', type=int, default=30,
                             help='Minimum number of seconds to wait before '
                             'checking for results')
-        parser.add_argument('--max-wait', type=int, default=300,
+        parser.add_argument('--max-wait', type=int, default=120,
                             help='Maximum number of seconds to wait for '
                             'results')
 
