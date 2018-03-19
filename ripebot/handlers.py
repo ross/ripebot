@@ -171,6 +171,7 @@ class RipeHandler(BaseSlashHandler):
         self.executor.submit(caller)
 
     def _select_probes(self, options):
+        # TODO: make sure probes match address family
 
         kwargs = {}
 
@@ -464,8 +465,13 @@ class RipeHandler(BaseSlashHandler):
         certs = {}
         for result in results:
 
-            cert_data = bytes(result['cert'][0], 'ascii')
-            if pem.detect(cert_data):
+            try:
+                cert_data = bytes(result['cert'][0], 'ascii')
+            except KeyError:
+                cert_data = None
+                cert_serial = ''
+
+            if cert_data is not None and pem.detect(cert_data):
                 _, _, der_bytes = pem.unarmor(cert_data)
                 cert = x509.Certificate.load(der_bytes)
 
@@ -487,11 +493,16 @@ class RipeHandler(BaseSlashHandler):
             except KeyError:
                 rt = ''
 
+            try:
+                version = '{}/{}'.format(result['method'], result['ver'])
+            except KeyError:
+                version = ''
+
             table.append((
                 result['from'],
                 str(asns[result['prb_id']]),
                 result.get('dst_addr', ''),
-                '{}/{}'.format(result['method'], result['ver']),
+                version,
                 cert_serial,
                 ttr,
                 ttc,
@@ -524,7 +535,7 @@ class RipeHandler(BaseSlashHandler):
 
             subject = cert['tbs_certificate']['subject'].native
             buf.write('*Subject*: ')
-            buf.write(subject['organization_name'])
+            buf.write(subject.get('organization_name', ''))
             buf.write('\n')
 
             issuer = cert['tbs_certificate']['issuer'].native
@@ -596,6 +607,7 @@ class RipeHandler(BaseSlashHandler):
                            help='Probe selection radius in miles')
 
         group = parser.add_argument_group('General test options')
+        # TODO: default to not specified and let the probe choose?
         group.add_argument('--address-family', type=int, choices=(4, 6),
                            default='4')
         group.add_argument('--resolve-on-probe', action='store_true',
