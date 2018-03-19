@@ -1,6 +1,8 @@
 #!/bin/bash
-# Bootstrap the application's environment.
+
 set -e
+
+# TODO: use tempdirs and clean up after ourselves
 
 cd "$(dirname $0)"/..
 ROOT=$(pwd)
@@ -11,6 +13,14 @@ if [ ! -f $out ]; then
     echo "Downloading $base"
     curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz" | \
         (cd data && tar xz && mv $base*/$base.mmdb ./)
+fi
+
+out="./data/asn.csv"
+base="GeoLite2-ASN-CSV"
+if [ ! -f $out ]; then
+    echo "Downloading $base"
+    curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=zip" > data/$base.zip
+    (cd data && unzip -q -o $base.zip && cut -d , -f 2- $base*/*.csv | sort -n | uniq > asns.csv)
 fi
 
 if [ -z $MAXMIND_LICENSE_KEY ]; then

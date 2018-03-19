@@ -5,6 +5,7 @@
 from asn1crypto import pem, x509
 from argparse import Action, ArgumentError
 from concurrent.futures import ThreadPoolExecutor
+from csv import reader as csv_reader
 from datetime import datetime
 from geoip2.database import Reader as MaxmindReader
 from geoip2.errors import AddressNotFoundError
@@ -64,6 +65,22 @@ class Table(list):
         buf.write('+\n')
 
 
+class AsnOrgLookup(object):
+
+    def __init__(self):
+        self._data = None
+
+    def __getitem__(self, key):
+        if self._data is None:
+            with open('./data/asns.csv', 'r') as fh:
+                # Skip the header
+                fh.readline()
+                # Build the mapping with the rest
+                self._data = {int(r[0]): r[1] for r in csv_reader(fh)}
+
+        return self._data[key]
+
+
 class IpAddressAction(Action):
 
     def __call__(self, parser, namespace, value, option_string=None):
@@ -119,6 +136,7 @@ class RipeHandler(BaseSlashHandler):
     else:
         city_lookup = MaxmindReader('./data/GeoLite2-City.mmdb')
     asn_lookup = MaxmindReader('./data/GeoLite2-ASN.mmdb')
+    asn_org = AsnOrgLookup()
 
     strict_parser = True
 
@@ -296,6 +314,21 @@ class RipeHandler(BaseSlashHandler):
         self._await_results(options, measurement_id,
                             self._send_ping_response)
 
+    def _map_asns(self, measurement, results):
+
+        asn_key = 'asn_v{}'.format(measurement['af'])
+        probe_ids = [r['prb_id'] for r in results]
+        asns = {}
+        for probe in self.ripe_client.probes_by_id(probe_ids):
+            asn = probe[asn_key]
+            try:
+                asns[probe['id']] = '{} - {}'.format(asn,
+                                                     self.asn_org[asn][:12])
+            except KeyError:
+                asns[probe['id']] = str(asn)
+
+        return asns
+
     def _send_ping_response(self, measurement_id, results=None):
         self.log.debug('_send_ping_response: measurement_id=%d, results=*',
                        measurement_id)
@@ -311,12 +344,7 @@ class RipeHandler(BaseSlashHandler):
 
         self._measurement_summary(measurement, buf)
 
-        asn_key = 'asn_v{}'.format(measurement['af'])
-        probe_ids = [r['prb_id'] for r in results]
-        asns = {
-            p['id']: p[asn_key]
-            for p in self.ripe_client.probes_by_id(probe_ids)
-        }
+        asns = self._map_asns(measurement, results)
 
         table = Table((
             'Source IP',
@@ -356,7 +384,7 @@ class RipeHandler(BaseSlashHandler):
             percent = 100 * rcvd / sent if sent > 0 else 0
             table.append((
                 result['from'],
-                str(asns[result['prb_id']]),
+                asns[result['prb_id']],
                 result.get('dst_addr', ''),
                 ttr,
                 '{} of {} = {:0.2f}%'.format(rcvd, sent, percent),
@@ -421,12 +449,7 @@ class RipeHandler(BaseSlashHandler):
 
         self._measurement_summary(measurement, buf)
 
-        asn_key = 'asn_v{}'.format(measurement['af'])
-        probe_ids = [r['prb_id'] for r in results]
-        asns = {
-            p['id']: p[asn_key]
-            for p in self.ripe_client.probes_by_id(probe_ids)
-        }
+        asns = self._map_asns(measurement, results)
 
         table = Table((
             'Source IP',
