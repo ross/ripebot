@@ -19,4 +19,4 @@ six==1.11.0
 tornado==5.0
 urllib3==1.22
 
-file:../botie
+-e git+https://git@github.com/ross/botie.git@7735da73321eb6fc582aca388056263b034f40b0#egg=botie
