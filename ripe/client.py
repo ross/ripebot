@@ -64,22 +64,8 @@ class RipeClient(object):
             for probe in data['results']:
                 yield probe
 
-    def probes_by_geo(self, lat, lon, radius, **filters):
-        self.log.debug('probes_by_id: lat=%f, lon=%f, radius=%f', lat, lon,
-                       radius)
-
-        self._validate_probe_filters(filters)
-
+    def _probe_query(self, params):
         url = '{}/probes/'.format(self.BASE_URL)
-        params = {
-            'id__gt': -1,
-            'page_size': self.PAGE_SIZE,
-            'radius': '{},{}:{}'.format(lat, lon, radius),
-            # Would be nice to sort by radius, but that doesn't appear to be
-            # supported
-            'sort': 'id',
-        }
-        params.update(filters)
 
         # TODO: LRU cache probes for use in responses? Maybe in client...
         while True:
@@ -90,6 +76,39 @@ class RipeClient(object):
             if data['next'] is None:
                 return
             params['id__gt'] = results[-1]['id']
+
+    def probes_by_geo(self, lat, lon, radius, **filters):
+        self.log.debug('probes_by_geo: lat=%f, lon=%f, radius=%f', lat, lon,
+                       radius)
+
+        self._validate_probe_filters(filters)
+
+        params = {
+            'id__gt': -1,
+            'page_size': self.PAGE_SIZE,
+            'radius': '{},{}:{}'.format(lat, lon, radius),
+            # Would be nice to sort by radius, but that doesn't appear to be
+            # supported
+            'sort': 'id',
+        }
+        params.update(filters)
+
+        return self._probe_query(params)
+
+    def probes_by_country(self, country_code, **filters):
+        self.log.debug('probes_by_country: country_code=%s', country_code)
+
+        self._validate_probe_filters(filters)
+
+        params = {
+            'id__gt': -1,
+            'page_size': self.PAGE_SIZE,
+            'country_code': country_code,
+            'sort': 'id',
+        }
+        params.update(filters)
+
+        return self._probe_query(params)
 
     def _description(self, _type):
         return '{} - {} - {}'.format(self.name, _type, uuid4().hex)

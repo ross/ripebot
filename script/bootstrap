@@ -17,6 +17,7 @@ if [ ! -d "$VENV_NAME" ]; then
 fi
 . "$VENV_NAME/bin/activate"
 
+pip install -U pip
 pip install -U -r requirements.txt
 
 if [ "$ENV" != "production" ]; then

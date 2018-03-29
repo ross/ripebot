@@ -5,6 +5,7 @@
 from asn1crypto import pem, x509
 from argparse import Action, ArgumentError
 from concurrent.futures import ThreadPoolExecutor
+from countrynames import to_code as country_to_code
 from csv import reader as csv_reader
 from datetime import datetime
 from geoip2.database import Reader as MaxmindReader
@@ -149,6 +150,10 @@ class RipeHandler(BaseSlashHandler):
     def handle(self, options, args):
         self.log.debug('handle: options=%s', options)
 
+        if options.target is None and options.measurement_id is None:
+            raise ArgumentError(None, 'either --target or --measurement-id '
+                                'is required')
+
         func = {
             'ping': self._ping,
             'sslcert': self._sslcert,
@@ -175,7 +180,7 @@ class RipeHandler(BaseSlashHandler):
 
         kwargs = {}
 
-        kwargs['radius'] = options.radius_miles * 1.60934 \
+        radius = options.radius_miles * 1.60934 \
             if options.radius_miles is not None else options.radius
 
         # ASN
@@ -185,9 +190,13 @@ class RipeHandler(BaseSlashHandler):
             kwargs['asn_v6'] = options.asn_v6
 
         if options.ip_address is not None:
+            kwargs['radius'] = radius
             return self._select_probes_ip_address(options, kwargs)
         elif not (options.lat is None and options.lon is None):
+            kwargs['radius'] = radius
             return self._select_probes_lat_lon(options, kwargs)
+        elif options.country is not None:
+            return self._select_probes_country(options, kwargs)
 
         raise ArgumentError(None, 'Missing probe selection parameters')
 
@@ -233,11 +242,34 @@ class RipeHandler(BaseSlashHandler):
             if len(probe_ids) >= options.num_probes:
                 break
 
-        self.log.debug('_select_probes: n=%d, probe_ids=%s', len(probe_ids),
-                       probe_ids)
+        self.log.debug('_select_probes_lat_lon: n=%d, probe_ids=%s',
+                       len(probe_ids), probe_ids)
 
         if len(probe_ids) == 0:
             raise NoProbes('Failed to find any probes in the requested area')
+
+        return probe_ids
+
+    def _select_probes_country(self, options, kwargs):
+        self.log.debug('_select_probes_country: options=%s, kwargs=%s',
+                       options, kwargs)
+
+        code = country_to_code(options.country)
+        self.log.error('_select_probes_country: code=%s', code)
+
+        probe_ids = []
+        for probe in self.ripe_client.probes_by_country(code, **kwargs):
+            if probe['status']['id'] == 1:
+                probe_ids.append(probe['id'])
+            if len(probe_ids) >= options.num_probes:
+                break
+
+        self.log.debug('_select_probes_country: n=%d, probe_ids=%s',
+                       len(probe_ids), probe_ids)
+
+        if len(probe_ids) == 0:
+            raise NoProbes('Failed to find any probes in the requested '
+                           'country')
 
         return probe_ids
 
@@ -593,6 +625,10 @@ class RipeHandler(BaseSlashHandler):
                            help='Look for probes centering on latitude')
         group.add_argument('--lon', type=float, default=None,
                            help='Look for probes centering on longitude')
+
+        group = parser.add_argument_group('Country based probe selection')
+        group.add_argument('--country', default=None,
+                           help='Look for probes based in a country')
 
         group = parser.add_argument_group('Filter probes by ASN')
         group.add_argument('--asn-v4', type=int, default=None,

@@ -15,7 +15,7 @@ if [ ! -f $out ]; then
         (cd data && tar xz && mv $base*/$base.mmdb ./)
 fi
 
-out="./data/asn.csv"
+out="./data/asns.csv"
 base="GeoLite2-ASN-CSV"
 if [ ! -f $out ]; then
     echo "Downloading $base"

@@ -1,7 +1,9 @@
 asn1crypto==0.24.0
+banal==0.3.3
 certifi==2018.1.18
 cffi==1.11.5
 chardet==3.0.4
+countrynames==1.5
 coverage==4.5.1
 cryptography==2.1.4
 geoip2==2.7.0
@@ -9,14 +11,18 @@ idna==2.6
 ipaddress==1.0.19
 maxminddb==1.3.0
 mock==2.0.0
+normality==0.5.11
 nose==1.3.7
 pbr==3.1.1
 pycodestyle==2.3.1
+pycountry==18.2.23
 pycparser==2.18
 pyflakes==1.6.0
+python-Levenshtein==0.12.0
+PyYAML==3.12
 requests==2.18.4
 six==1.11.0
 tornado==5.0
 urllib3==1.22
 
--e git+https://git@github.com/ross/botie.git@7735da73321eb6fc582aca388056263b034f40b0#egg=botie
+-e git+https://git@github.com/ross/botie.git@dbed6ba76e36aba35013a35459f40fea78b893bd#egg=botie
