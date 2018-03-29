@@ -23,9 +23,10 @@ if __name__ == '__main__':
 
     ripe_client = RipeClient('RipeBot', environ['RIPE_API_KEY'])
 
+    path_prefix = environ.get('PATH_PREFIX', '')
     auth_tokens = environ['SLACK_AUTH_TOKENS'].split(',')
     app = Application([
-        (r'/slack/ripe', RipeHandler, {
+        (r'{}/slack/ripe'.format(path_prefix), RipeHandler, {
             'backend': SlackBackend(auth_tokens=auth_tokens),
             'ripe_client': ripe_client,
         }),
