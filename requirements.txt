@@ -19,10 +19,10 @@ pycountry==18.2.23
 pycparser==2.19
 pyflakes==1.6.0
 python-Levenshtein==0.12.0
-PyYAML==3.12
+PyYAML==4.2b1
 requests==2.20.0
 six==1.11.0
 tornado==5.0
 urllib3==1.24.1
 
--e git+https://git@github.com/ross/botie.git@dbed6ba76e36aba35013a35459f40fea78b893bd#egg=botie
+-e git+https://git@github.com/ross/botie.git@d494fb939b270f67fdce6e9509787392934529c8#egg=botie
