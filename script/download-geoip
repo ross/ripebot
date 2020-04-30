@@ -1,17 +1,23 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 # TODO: use tempdirs and clean up after ourselves
 
 cd "$(dirname $0)"/..
 ROOT=$(pwd)
 
+if [ -z $MAXMIND_LICENSE_KEY ]; then
+    echo "MAXMIND_LICENSE_KEY env var must be defined to continue"
+    exit 1
+fi
+
 out="./data/GeoLite2-ASN.mmdb"
 base=$(basename $out .mmdb)
 if [ ! -f $out ]; then
     echo "Downloading $base"
-    curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz" | \
+    curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz&license_key=$MAXMIND_LICENSE_KEY" | \
         (cd data && tar xz && mv $base*/$base.mmdb ./)
 fi
 
@@ -19,11 +25,11 @@ out="./data/asns.csv"
 base="GeoLite2-ASN-CSV"
 if [ ! -f $out ]; then
     echo "Downloading $base"
-    curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=zip" > data/$base.zip
+    curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=zip&license_key=$MAXMIND_LICENSE_KEY" > data/$base.zip
     (cd data && unzip -q -o $base.zip && cut -d , -f 2- $base*/*.csv | sort -n | uniq > asns.csv)
 fi
 
-if [ -z $MAXMIND_LICENSE_KEY ]; then
+if [ -z $MAXMIND_PAID ]; then
     out="./data/GeoLite2-City.mmdb"
     base=$(basename $out .mmdb)
     if [ ! -f $out ]; then
@@ -31,7 +37,7 @@ if [ -z $MAXMIND_LICENSE_KEY ]; then
         echo "NOTICE: MAXMIND_LICENSE_KEY env variable not defined, downloading $base"
         echo ""
         echo "Downloading $base"
-        curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz" | \
+        curl -sS "https://download.maxmind.com/app/geoip_download?edition_id=$base&suffix=tar.gz&license_key=$MAXMIND_LICENSE_KEY" | \
             (cd data && tar xz && mv $base*/$base.mmdb ./)
     fi
 else
