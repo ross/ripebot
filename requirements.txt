@@ -5,7 +5,7 @@ cffi==1.14.0
 chardet==3.0.4
 countrynames==1.6.0
 coverage==5.1
-cryptography==2.9.2
+cryptography==3.2
 geoip2==3.0.0
 idna==2.9
 ipaddress==1.0.23
